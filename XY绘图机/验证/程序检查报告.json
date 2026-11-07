@@ -1,0 +1,17 @@
+{
+  "simulation_only": true,
+  "hardware_verified": false,
+  "nominal_simulated_seconds_including_setup": 285.256,
+  "circle_diameter_mm": 80.0,
+  "square_side_mm": 50.0,
+  "circle_max_quantization_radial_error_mm": 0.028292,
+  "square_max_edge_error_mm": 0.0,
+  "final_position_mm": [
+    0.0,
+    0.0
+  ],
+  "pen_down_paths": 2,
+  "note": "时间未计入解释器/GPIO开销和实物卡顿；误差仅为指令量化误差，不是实物精度。",
+  "tests_run": 10,
+  "all_passed": true
+}

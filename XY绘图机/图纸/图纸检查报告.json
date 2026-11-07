@@ -1,0 +1,46 @@
+{
+  "units": "mm",
+  "board_mm": [
+    195,
+    195
+  ],
+  "part_count": 19,
+  "minimum_part_gap_mm": 2.5,
+  "warnings": [
+    "未进行实物试装或电机带载验证；孔槽配合、舵机托笔位置需试切与调试。"
+  ],
+  "cut_bounds_mm": [
+    [
+      1.5,
+      1.5
+    ],
+    [
+      192.0,
+      192.5
+    ]
+  ],
+  "all_cut_contours_closed": true,
+  "layer_names": [
+    "0"
+  ],
+  "rack_pitch_mm": 4.0,
+  "pinion_teeth": 16,
+  "nominal_mm_per_revolution": 64.0,
+  "slot_pin_mechanical_travel_mm": {
+    "X": 92,
+    "Y": 106
+  },
+  "configured_work_travel_mm": [
+    90,
+    90
+  ],
+  "nominal_assembly_height_mm": {
+    "rail_bottom": 30,
+    "bridge_bottom": 32.75,
+    "carriage_bottom": 38.55,
+    "upper_pen_guide_bottom": 59
+  },
+  "carriage_over_motor_bracket_clearance_mm": 0.3,
+  "critical_clearance_sampling": "X 91 positions; Y screw-head envelope diameter 6mm",
+  "ideal_mesh_max_overlap_mm2": 0
+}

@@ -1,0 +1,236 @@
+<div id="xy-motion-explainer">
+  <style>
+    #xy-motion-explainer { color: var(--foreground); }
+    #xy-motion-explainer .motion-stage { width:100%; }
+    #xy-motion-explainer .motion-stage svg { display:block; width:100%; overflow:visible; }
+    #xy-motion-explainer .motion-controls { margin-top:8px; }
+    #xy-motion-explainer .motion-status { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    #xy-motion-explainer .motion-slider { width:100%; margin-top:12px; }
+    #xy-motion-explainer .motion-svg text { font-size:12px; fill:var(--foreground); }
+    #xy-motion-explainer .motion-svg .structure { stroke:var(--border); stroke-width:1; stroke-linejoin:round; }
+    #xy-motion-explainer .motion-svg .acrylic-top { fill:color-mix(in srgb,var(--viz-series-1) 13%,var(--background)); }
+    #xy-motion-explainer .motion-svg .acrylic-side { fill:color-mix(in srgb,var(--viz-series-1) 21%,var(--background)); }
+    #xy-motion-explainer .motion-svg .neutral-top { fill:var(--muted); }
+    #xy-motion-explainer .motion-svg .neutral-side { fill:color-mix(in srgb,var(--muted-foreground) 18%,var(--background)); }
+    #xy-motion-explainer .motion-svg .metal { fill:color-mix(in srgb,var(--muted-foreground) 22%,var(--background)); stroke:var(--muted-foreground); stroke-width:1; }
+    #xy-motion-explainer .motion-svg .guide { stroke:var(--muted-foreground); stroke-width:1; fill:none; }
+    #xy-motion-explainer .motion-svg .target { stroke:var(--border); stroke-width:1; fill:none; }
+    #xy-motion-explainer .motion-svg .ink { stroke:var(--viz-series-1); stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; fill:none; }
+    #xy-motion-explainer .motion-svg .leader { stroke:var(--muted-foreground); stroke-width:1; fill:none; }
+    #xy-motion-explainer .motion-svg .paper { fill:var(--card); stroke:var(--border); stroke-width:1; }
+    #xy-motion-explainer .motion-svg .pen { stroke:var(--foreground); stroke-linecap:round; }
+  </style>
+  <h3>纸固定，笔在纸上走</h3>
+  <div class="text-small text-muted">细线：目标轮廓 · 粗线：已经画出的笔迹</div>
+  <div class="motion-stage"></div>
+  <div class="motion-status">
+    <span class="phase" aria-live="polite">抬笔，移动到圆的起点</span>
+    <span class="pen-state text-small">笔：抬起</span>
+  </div>
+  <div class="viz-controls motion-controls">
+    <button type="button" class="btn btn-primary play">播放一遍</button>
+    <span class="text-small text-muted">加速运动示意 · 省略部分螺丝与电线</span>
+  </div>
+  <div class="motion-slider">
+    <label class="form-label" for="xy-motion-time">演示进度</label>
+    <input id="xy-motion-time" class="form-range" type="range" min="0" max="17.8" step="0.01" value="0" aria-label="拖动查看绘图过程">
+  </div>
+  <script>
+    (() => {
+      const root=document.getElementById('xy-motion-explainer');
+      const stage=root.querySelector('.motion-stage');
+      const phaseLabel=root.querySelector('.phase');
+      const penLabel=root.querySelector('.pen-state');
+      const playButton=root.querySelector('.play');
+      const slider=root.querySelector('.form-range');
+      const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+      const phases=[
+        {duration:1.8,name:'抬笔，移动到圆的起点',kind:'line',a:[0,0],b:[85,45],lift:3},
+        {duration:.5,name:'落笔，笔尖接触纸面',kind:'lower',point:[85,45]},
+        {duration:6,name:'画圆：横梁和笔架同时运动',kind:'circle',lift:0},
+        {duration:.5,name:'抬笔，准备换一个图形',kind:'raise',point:[85,45]},
+        {duration:1,name:'抬笔移动，不在纸上留下连接线',kind:'line',a:[85,45],b:[20,20],lift:3},
+        {duration:.4,name:'落笔，开始画正方形',kind:'lower',point:[20,20]},
+        {duration:5,name:'画正方形：左右、前后交替运动',kind:'square',lift:0},
+        {duration:.4,name:'两幅图画完，抬笔',kind:'raise',point:[20,20]},
+        {duration:2.2,name:'抬笔返回，圆和正方形留在纸上',kind:'line',a:[20,20],b:[0,0],lift:3}
+      ];
+      let start=0;
+      phases.forEach(p=>{p.start=start;start+=p.duration;p.end=start;});
+      const total=start;
+      slider.max=String(total);
+      const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+      const lerp=(a,b,f)=>a+(b-a)*f;
+      const saved=window.openai?.widgetState;
+      let elapsed=clamp(Number(saved?.privateContent?.time ?? saved?.time ?? 0)||0,0,total);
+      let playing=false, lastStamp=0, frame=0, lastPhase='';
+      function pointCircle(f){return [45+40*Math.cos(f*Math.PI*2),45+40*Math.sin(f*Math.PI*2)];}
+      const corners=[[20,20],[70,20],[70,70],[20,70],[20,20]];
+      function pointSquare(f){const z=clamp(f,0,1)*4;const i=Math.min(3,Math.floor(z));return [lerp(corners[i][0],corners[i+1][0],z-i),lerp(corners[i][1],corners[i+1][1],z-i)];}
+      function stateAt(t){
+        const p=phases.find(p=>t<p.end)||phases[phases.length-1];
+        const f=clamp((t-p.start)/p.duration,0,1);
+        let point=p.point, lift=p.lift;
+        if(p.kind==='line')point=[lerp(p.a[0],p.b[0],f),lerp(p.a[1],p.b[1],f)];
+        if(p.kind==='circle')point=pointCircle(f);
+        if(p.kind==='square')point=pointSquare(f);
+        if(p.kind==='lower')lift=lerp(3,0,f);
+        if(p.kind==='raise')lift=lerp(0,3,f);
+        return {point,lift,down:lift<.02,name:t>=total?'完成：同心圆＋正方形':p.name,phase:p};
+      }
+      function persist(){
+        if(typeof window.openai?.setWidgetState==='function'){
+          window.openai.setWidgetState({modelContent:{view:'XY绘图机运动演示',phase:stateAt(elapsed).name},privateContent:{time:elapsed}}).catch(()=>{});
+        }
+      }
+      function paint(){
+        const width=Math.max(280,stage.clientWidth||680);
+        const height=Math.max(310,Math.min(510,width*.71));
+        const raw=(x,y,z=0)=>[x+.45*y,.22*x-.55*y-z];
+        const xmin=-54,xmax=260,ymin=-157,ymax=57;
+        const scale=Math.min((width-42)/(xmax-xmin),(height-50)/(ymax-ymin));
+        const ox=(width-(xmax-xmin)*scale)/2-xmin*scale;
+        const oy=(height-(ymax-ymin)*scale)/2-ymin*scale;
+        const project=(x,y,z=0)=>{const [a,b]=raw(x,y,z);return [ox+a*scale,oy+b*scale];};
+        const fmt=v=>v.toFixed(2);
+        const pt=v=>v.map(fmt).join(',');
+        const polygon=(points,cls,extra='')=>`<polygon points="${points.map(v=>pt(project(...v))).join(' ')}" class="${cls}" ${extra}/>`;
+        const line=(a,b,cls,extra='')=>`<path d="M${pt(project(...a))}L${pt(project(...b))}" class="${cls}" ${extra}/>`;
+        const path=(points,cls)=>points.length?`<path d="M${points.map(v=>pt(project(...v))).join('L')}" class="${cls}"/>`:'';
+        const label=(text,x,y,anchor='start')=>`<text x="${fmt(x)}" y="${fmt(y)}" text-anchor="${anchor}">${text}</text>`;
+        const rect=(x,y,w,h,z,cls)=>polygon([[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z]],cls);
+        function prism(x,y,w,h,z,t,neutral=false){
+          const top=neutral?'neutral-top':'acrylic-top';
+          const side=neutral?'neutral-side':'acrylic-side';
+          return polygon([[x,y,z],[x+w,y,z],[x+w,y,z+t],[x,y,z+t]],`structure ${side}`)+
+            polygon([[x+w,y,z],[x+w,y+h,z],[x+w,y+h,z+t],[x+w,y,z+t]],`structure ${side}`)+
+            rect(x,y,w,h,z+t,`structure ${top}`);
+        }
+        function gear(x,y,z,angle){
+          const points=[];
+          for(let i=0;i<64;i++){
+            const theta=angle+i*Math.PI/32;
+            const r=(i%4===1||i%4===2)?11.4:9;
+            points.push([x+r*Math.cos(theta),y+r*Math.sin(theta),z]);
+          }
+          return polygon(points,'metal');
+        }
+        function motor(x,y,z){
+          const lower=[],upper=[];
+          for(let i=0;i<=40;i++){
+            const a=i*2*Math.PI/40;
+            lower.push([x+14*Math.cos(a),y+14*Math.sin(a),z]);
+            upper.push([x+14*Math.cos(a),y+14*Math.sin(a),z+19]);
+          }
+          return polygon(lower,'metal')+
+            polygon([...lower.slice(0,21),...upper.slice(0,21).reverse()],'metal')+
+            polygon(upper,'metal');
+        }
+        function shapeTrace(index,kind){
+          const p=phases[index];
+          const f=clamp((elapsed-p.start)/p.duration,0,1);
+          if(elapsed<=p.start)return '';
+          let points=[];
+          if(kind==='circle'){
+            const n=Math.floor(f*240);
+            for(let i=0;i<=n;i++)points.push(pointCircle(i/240));
+            points.push(pointCircle(f));
+          }else{
+            const n=Math.floor(f*4);
+            for(let i=0;i<=n;i++)points.push(corners[i]);
+            points.push(pointSquare(f));
+          }
+          return path(points.map(([x,y])=>[x+35,y+6,.2]),'ink');
+        }
+        const current=stateAt(elapsed);
+        const [x,y]=current.point;
+        const c=x+35,b=y+20;
+        let out=`<svg class="motion-svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="XY绘图机斜视运动模型：纸张固定，横梁沿前后方向运动，笔架沿横梁左右移动，笔尖接触纸面时留下轨迹"><title>XY绘图机运动</title><desc>圆由两个方向同时移动画出；正方形由两个方向交替移动画出。换图形和返回时抬笔。</desc>`;
+        out+=polygon([[-30,-25,0],[175,-25,0],[175,185,0],[-30,185,0]],'paper');
+        const ghostCircle=[];
+        for(let i=0;i<=120;i++){const q=pointCircle(i/120);ghostCircle.push([q[0]+35,q[1]+6,.1]);}
+        out+=path(ghostCircle,'target');
+        out+=path(corners.map(([cx,cy])=>[cx+35,cy+6,.1]),'target');
+        out+=shapeTrace(2,'circle')+shapeTrace(6,'square');
+        for(const fx of [14,144])for(const fy of [6,154]){
+          out+=prism(fx-12,fy-10,24,20,0,2.75,true);
+          out+=line([fx,fy,2.75],[fx,fy,30],'guide','stroke-width="2"');
+        }
+        out+=prism(0,148,156,12,27.25,2.75);
+        out+=prism(0,0,156,12,27.25,2.75);
+        out+=prism(0,0,24,160,30,2.75);
+        out+=prism(136,0,16,160,30,2.75);
+        out+=line([14,18,32.8],[14,142,32.8],'guide');
+        out+=line([144,18,32.8],[144,142,32.8],'guide');
+        out+=gear(-9.01,b+16,31.4,-y/10.186);
+        out+=prism(0,b,156,32,32.75,2.75);
+        out+=line([24,b+16,35.6],[136,b+16,35.6],'guide');
+        out+=prism(-38,b-8,56,48,35.5,2.75);
+        out+=motor(-17.01,b+16,38.25);
+        out+=gear(c,b+41.01,34.1,-x/10.186);
+        out+=prism(c-15,b+10,10,12,35.5,2.75);
+        out+=prism(c+5,b+10,10,12,35.5,2.75);
+        out+=prism(c-23,b-24,46,88,38.55,2.75);
+        out+=motor(c,b+49.01,41.3);
+        out+=prism(c+9,b-10,23,23,41.3,12.5,true);
+        for(const dx of [-9,9])out+=line([c+dx,b-14,41.3],[c+dx,b-14,59],'guide','stroke-width="1.5"');
+        out+=prism(c-14,b-24,28,20,59,2.75);
+        const penBottom=project(c,b-14,current.lift),penTop=project(c,b-14,90+current.lift);
+        out+=`<path d="M${pt(penTop)}L${pt(penBottom)}" class="pen" stroke-width="${width<450?5:7}"/>`;
+        out+=`<circle cx="${fmt(penBottom[0])}" cy="${fmt(penBottom[1])}" r="3" fill="${current.down?'var(--viz-series-1)':'var(--foreground)'}"/>`;
+        out+=line([c+10,b-14,48+current.lift],[c,b-14,48+current.lift],'guide','stroke-width="3"');
+        // 直接标注运动部件；窄屏减少标签，保留两种平移和固定纸张。
+        const paperAt=project(153,170,0);
+        out+=label('纸：固定',paperAt[0],paperAt[1]+20,'end');
+        const railAt=project(152,b+16,35.5);
+        const beamLabel=[width-10,railAt[1]+27];
+        out+=`<path class="leader" d="M${pt(railAt)}L${pt([beamLabel[0]-4,beamLabel[1]-7])}"/>`;
+        out+=label('横梁：前后走',beamLabel[0],beamLabel[1],'end');
+        const carriageAt=project(c,b+45,62);
+        const captionX=clamp(carriageAt[0]+12,90,width-12),captionY=Math.max(20,carriageAt[1]-25);
+        out+=`<path class="leader" d="M${pt(carriageAt)}L${pt([captionX-5,captionY+5])}"/>`;
+        out+=label('笔架：左右走',captionX,captionY,'middle');
+        if(width>=510){
+          const penAt=project(c,b-14,78+current.lift);
+          out+=label('笔',penAt[0]-12,penAt[1],'end');
+          const liftAt=project(c+15,b-4,50);
+          out+=label('抬笔舵机',liftAt[0]+12,liftAt[1]+18);
+        }
+        out+='</svg>';
+        stage.innerHTML=out;
+        slider.value=String(elapsed);
+        if(lastPhase!==current.name){phaseLabel.textContent=current.name;lastPhase=current.name;}
+        penLabel.textContent=current.down?'笔：落下，留下笔迹':'笔：抬起，不画线';
+        playButton.textContent=playing?'暂停':elapsed>=total?'重新播放':reduced.matches?'下一步':elapsed>0?'继续播放':'播放一遍';
+        playButton.setAttribute('aria-pressed',String(playing));
+      }
+      function tick(stamp){
+        if(!playing)return;
+        if(lastStamp)elapsed=clamp(elapsed+(stamp-lastStamp)/1000,0,total);
+        lastStamp=stamp;
+        if(elapsed>=total){playing=false;persist();}
+        paint();
+        if(playing)frame=requestAnimationFrame(tick);
+      }
+      playButton.addEventListener('click',()=>{
+        if(reduced.matches){
+          if(elapsed>=total)elapsed=0;
+          else elapsed=phases.find(p=>p.end>elapsed+.02)?.end??total;
+          paint();persist();return;
+        }
+        if(playing){playing=false;cancelAnimationFrame(frame);paint();persist();}
+        else{if(elapsed>=total)elapsed=0;playing=true;lastStamp=0;paint();frame=requestAnimationFrame(tick);}
+      });
+      slider.addEventListener('input',()=>{playing=false;cancelAnimationFrame(frame);elapsed=Number(slider.value);paint();});
+      slider.addEventListener('change',persist);
+      window.addEventListener('openai:set_globals',event=>{
+        const state=event.detail?.globals?.widgetState;
+        if(!state)return;
+        playing=false;cancelAnimationFrame(frame);
+        elapsed=clamp(Number(state.privateContent?.time??state.time??0)||0,0,total);paint();
+      });
+      new ResizeObserver(paint).observe(stage);
+      paint();
+    })();
+  </script>
+</div>
